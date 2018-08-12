@@ -10,14 +10,12 @@ type Message struct {
 	Id      string            `json:"id"`
 	Headers map[string]string `json:"headers"`
 	Body    []byte            `json:"body"`
-	ttl     int64
 	queue   *Queue
 }
 
 
 func (msg Message) Ack() error {
-	keyHold := addSuffix(msg.queue.Id, ".HOLD")
-	r, err := msg.queue.conn.Do("LREM", keyHold, 0, msg.Id)
+	r, err := msg.queue.conn.Do("LREM", msg.queue.keyHold, 0, msg.Id)
 	count, _ := redis.Int64(r, err)
 	log.Println(count)
 
@@ -29,20 +27,16 @@ func (msg Message) Ping() error {
 }
 
 func (msg Message) Nack() error {
-	keyWait := addSuffix(msg.queue.Id, ".WAIT")
-	keyHold := addSuffix(msg.queue.Id, ".HOLD")
-
-	_, err := msg.queue.conn.Do("RPOPLPUSH", keyHold, keyWait)
+	_, err := msg.queue.conn.Do("RPOPLPUSH", msg.queue.keyHold, msg.queue.keyWait)
 
 	return err
 }
 
-func NewMsg(body []byte, headers map[string]string, Id string, ttl int64, queue *Queue) *Message {
+func NewMsg(body []byte, headers map[string]string, Id string, queue *Queue) *Message {
 	return &Message{
 		Id,
 		headers,
 		body,
-		ttl,
 		queue,
 	}
 }

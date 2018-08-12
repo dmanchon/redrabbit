@@ -2,30 +2,48 @@ package redrabbit
 
 import (
 	"log"
+	"time"
 
 	"github.com/gomodule/redigo/redis"
 )
 
+var (
+	pool        *redis.Pool
+)
+
+func newPool() *redis.Pool {
+	return &redis.Pool{
+		MaxIdle:     3,
+		IdleTimeout: 240 * time.Second,
+		Dial:        func() (redis.Conn, error) { return redis.Dial("tcp", ":6379") },
+	}
+}
+
 func Run() {
 	log.Println("Start...")
 	conn, err := redis.Dial("tcp", ":6379")
+	pool = newPool()
+	defer pool.Close()
 	defer conn.Close()
 	if err != nil {
 		// handle error
 	}
 
-	queue := New("onna/beats/ds1", conn)
-	msg := NewMsg(
-		[]byte("hello"),
-		nil, generateUUID(),
-		100.00, queue,
-	)
+	queue := NewQueue("onna/beats/ds1", conn, 5)
 
-	queue.Add(msg)
-	queue.Add(msg)
+	for i := 0; i < 1; i++ {
+		msg := NewMsg(
+			[]byte("hello"),
+			nil, generateUUID(),
+			queue,
+		)
+		queue.Add(msg)
+	}
 
 	msg2, _ := queue.Get()
 	log.Println(msg2)
 
-	msg2.Nack()
+	time.Sleep(time.Second * 10)
+	msg2, _ = queue.Get()
+
 }
