@@ -8,12 +8,13 @@ import (
 )
 
 var (
-	pool        *redis.Pool
+	pool *redis.Pool
 )
 
 func newPool() *redis.Pool {
 	return &redis.Pool{
 		MaxIdle:     3,
+		MaxActive:   10000,
 		IdleTimeout: 240 * time.Second,
 		Dial:        func() (redis.Conn, error) { return redis.Dial("tcp", ":6379") },
 	}
@@ -21,15 +22,10 @@ func newPool() *redis.Pool {
 
 func Run() {
 	log.Println("Start...")
-	conn, err := redis.Dial("tcp", ":6379")
 	pool = newPool()
 	defer pool.Close()
-	defer conn.Close()
-	if err != nil {
-		// handle error
-	}
 
-	queue := NewQueue("onna/beats/ds1", conn, 5)
+	queue := NewQueue("onna/beats/ds1", 5)
 
 	for i := 0; i < 1; i++ {
 		msg := NewMsg(
