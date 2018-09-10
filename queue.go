@@ -17,6 +17,7 @@ type Queue struct {
 	ttl     int64
 }
 
+
 func (q Queue) Add(msg *Message) error {
 	conn := pool.Get()
 	defer conn.Close()
@@ -84,7 +85,43 @@ func (q Queue) Get() (Message, error) {
 	return msg, err
 }
 
-func NewQueue(Id string, ttl int64) *Queue {
+func (q Queue) Register() error {
+	conn := pool.Get()
+	defer conn.Close()
+
+	_, err := conn.Do("SADD", "Queues", q.Id)
+	go q.waitForTTL()
+
+	listening[q.Id] = q.ttl
+	return err
+}
+
+func ListQueues() (error, []string) {
+	conn := pool.Get()
+	defer conn.Close()
+
+	var next int64
+	var data []string
+	ret := make([]string, 0)
+
+	for {
+		r, err := redis.Values(conn.Do("SSCAN", "Queues", next))
+		if err != nil {
+			return err, nil
+		}
+		_, err = redis.Scan(r, &next, &data)
+		if err != nil {
+			return err, nil
+		}
+		ret = append(ret, data...)
+		if next == 0 {
+			break
+		}
+	}
+	return nil, ret
+}
+
+func GetQueue(Id string, ttl int64) *Queue {
 	keyWait := fmt.Sprintf("%s.WAIT", Id)
 	keyHold := fmt.Sprintf("%s.HOLD", Id)
 	keyExps := fmt.Sprintf("%s.EXPS", Id)
@@ -96,6 +133,9 @@ func NewQueue(Id string, ttl int64) *Queue {
 		keyExps,
 		ttl,
 	}
-	go q.waitForTTL()
+	_, ok := listening[Id]
+	if !ok {
+		q.Register()
+	}
 	return q
 }

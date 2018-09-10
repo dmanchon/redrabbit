@@ -9,23 +9,33 @@ import (
 
 var (
 	pool *redis.Pool
+	listening map[string]int64
+
 )
 
-func newPool() *redis.Pool {
+func newPool(host string) *redis.Pool {
 	return &redis.Pool{
 		MaxIdle:     3,
 		MaxActive:   10000,
 		IdleTimeout: 240 * time.Second,
-		Dial:        func() (redis.Conn, error) { return redis.Dial("tcp", ":6379") },
+		Dial:        func() (redis.Conn, error) { return redis.Dial("tcp", host) },
 	}
 }
 
-func Run() {
-	log.Println("Start...")
-	pool = newPool()
-	defer pool.Close()
+func Init() error {
+	listening = make(map[string]int64)
+	err, _ := ListQueues()
+	return err
+}
 
-	queue := NewQueue("onna/beats/ds1", 5)
+
+func Run(host string) {
+	log.Printf("Start, connecting to redis[%s]...", host)
+	pool = newPool(host)
+	defer pool.Close()
+	Init()
+
+	queue := GetQueue("onna/beats/ds1", 5)
 
 	for i := 0; i < 1; i++ {
 		msg := NewMsg(
