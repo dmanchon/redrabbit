@@ -15,7 +15,7 @@ type Message struct {
 
 
 func (msg Message) Ack() error {
-	conn := pool.Get()
+	conn := msg.queue.pool.Get()
 	defer conn.Close()
 	r, err := conn.Do("LREM", msg.queue.keyHold, 0, msg.Id)
 	count, _ := redis.Int64(r, err)
@@ -29,7 +29,7 @@ func (msg Message) Ping() error {
 }
 
 func (msg Message) Nack() error {
-	conn := pool.Get()
+	conn := msg.queue.pool.Get()
 	defer conn.Close()
 	_, err := conn.Do("RPOPLPUSH", msg.queue.keyHold, msg.queue.keyWait)
 

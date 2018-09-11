@@ -3,24 +3,25 @@ package redrabbit
 import (
 	"fmt"
 	"log"
-	"time"
 	"strconv"
+	"time"
 
 	"github.com/gomodule/redigo/redis"
 )
 
 type Queue struct {
-	Id      string
+	Id      string `json:"id"`
 	keyWait string
 	keyHold string
 	keyExps string
-	ttl     int64
+	ttl     int64 `json:"ttl"`
+	pool    *redis.Pool
 }
 
-
 func (q Queue) Add(msg *Message) error {
-	conn := pool.Get()
+	conn := q.pool.Get()
 	defer conn.Close()
+
 	_, err := conn.Do("RPUSH", q.keyWait, msg.Id)
 
 	if err == nil {
@@ -37,7 +38,7 @@ func (q Queue) Add(msg *Message) error {
 
 func (q Queue) waitForTTL() {
 	for {
-		conn := pool.Get()
+		conn := q.pool.Get()
 		defer conn.Close()
 		r, err := conn.Do("BZPOPMIN", q.keyExps, 0)
 		values, err := redis.Strings(r, err)
@@ -56,7 +57,7 @@ func (q Queue) waitForTTL() {
 }
 
 func (q Queue) Get() (Message, error) {
-	conn := pool.Get()
+	conn := q.pool.Get()
 	defer conn.Close()
 	r, err := conn.Do("RPOPLPUSH", q.keyWait, q.keyHold)
 	//check error
@@ -85,40 +86,15 @@ func (q Queue) Get() (Message, error) {
 	return msg, err
 }
 
-func (q Queue) Register() error {
-	conn := pool.Get()
+func (q Queue) register() error {
+	conn := q.pool.Get()
 	defer conn.Close()
 
 	_, err := conn.Do("SADD", "Queues", q.Id)
 	go q.waitForTTL()
 
-	listening[q.Id] = q.ttl
+	server.listening[q.Id] = q.ttl
 	return err
-}
-
-func ListQueues() (error, []string) {
-	conn := pool.Get()
-	defer conn.Close()
-
-	var next int64
-	var data []string
-	ret := make([]string, 0)
-
-	for {
-		r, err := redis.Values(conn.Do("SSCAN", "Queues", next))
-		if err != nil {
-			return err, nil
-		}
-		_, err = redis.Scan(r, &next, &data)
-		if err != nil {
-			return err, nil
-		}
-		ret = append(ret, data...)
-		if next == 0 {
-			break
-		}
-	}
-	return nil, ret
 }
 
 func GetQueue(Id string, ttl int64) *Queue {
@@ -132,10 +108,11 @@ func GetQueue(Id string, ttl int64) *Queue {
 		keyHold,
 		keyExps,
 		ttl,
+		server.pool,
 	}
-	_, ok := listening[Id]
+	_, ok := server.listening[Id]
 	if !ok {
-		q.Register()
+		q.register()
 	}
 	return q
 }

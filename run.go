@@ -1,55 +1,59 @@
 package redrabbit
 
 import (
-	"log"
-	"time"
-
 	"github.com/gomodule/redigo/redis"
 )
 
 var (
-	pool *redis.Pool
-	listening map[string]int64
-
+	server *Server
 )
 
-func newPool(host string) *redis.Pool {
-	return &redis.Pool{
-		MaxIdle:     3,
-		MaxActive:   10000,
-		IdleTimeout: 240 * time.Second,
-		Dial:        func() (redis.Conn, error) { return redis.Dial("tcp", host) },
-	}
+type Server struct {
+	pool      *redis.Pool
+	listening map[string]int64
 }
 
-func Init() error {
-	listening = make(map[string]int64)
-	err, _ := ListQueues()
-	return err
+func (s Server) ListQueues() (error, []string) {
+	conn := s.pool.Get()
+	defer conn.Close()
+
+	var next int64
+	var data []string
+	ret := make([]string, 0)
+
+	for {
+		r, err := redis.Values(conn.Do("SSCAN", "Queues", next))
+		if err != nil {
+			return err, nil
+		}
+		_, err = redis.Scan(r, &next, &data)
+		if err != nil {
+			return err, nil
+		}
+		ret = append(ret, data...)
+		if next == 0 {
+			break
+		}
+	}
+	return nil, ret
 }
 
-
-func Run(host string) {
-	log.Printf("Start, connecting to redis[%s]...", host)
-	pool = newPool(host)
-	defer pool.Close()
-	Init()
-
-	queue := GetQueue("onna/beats/ds1", 5)
-
-	for i := 0; i < 1; i++ {
-		msg := NewMsg(
-			[]byte("hello"),
-			nil, generateUUID(),
-			queue,
-		)
-		queue.Add(msg)
+func Start(pool *redis.Pool) *Server {
+	if server != nil {
+		return server
 	}
 
-	msg2, _ := queue.Get()
-	log.Println(msg2)
+	listening := make(map[string]int64)
 
-	time.Sleep(time.Second * 10)
-	msg2, _ = queue.Get()
+	server = &Server{
+		pool,
+		listening,
+	}
 
+	_, queues := server.ListQueues()
+	for _, id := range queues {
+		GetQueue(id, 5)
+	}
+
+	return server
 }
