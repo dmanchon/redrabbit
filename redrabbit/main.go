@@ -3,13 +3,13 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"log"
-	"net/http"
-	"time"
-
 	"github.com/dmanchon/redrabbit"
 	"github.com/gomodule/redigo/redis"
 	"github.com/gorilla/mux"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"time"
 )
 
 func newPool(host string) *redis.Pool {
@@ -29,45 +29,65 @@ func getQueues(app *redrabbit.Server, w http.ResponseWriter) {
 func getMessage(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	path := vars["path"]
-	json.NewEncoder(w).Encode(path)
 
+	q := redrabbit.GetQueue(path, 5)
+	msg, _ := q.Get()
+
+	json.NewEncoder(w).Encode(msg)
+}
+
+func createQueue(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	path := vars["path"]
+	q := redrabbit.GetQueue(path, 5)
+
+	json.NewEncoder(w).Encode(q)
+
+}
+
+func putMessage(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	path := vars["path"]
+	q := redrabbit.GetQueue(path, 5)
+	body, _ := ioutil.ReadAll(r.Body)
+
+	msg := redrabbit.NewMsg(
+		body,
+		nil, redrabbit.GenerateUUID(),
+		q,
+	)
+	q.Add(msg)
+	json.NewEncoder(w).Encode(msg)
 }
 
 func main() {
 	host := flag.String("host", "localhost:6379", "Redis host in the format 'host:port'")
 	flag.Parse()
 
-	log.Printf("Start, connecting to redis[%s]...", host)
+	log.Printf("Start, connecting to redis[%s]...", *host)
 	pool := newPool(*host)
 	defer pool.Close()
 
 	app := redrabbit.Start(pool)
 
-	//queue := redrabbit.GetQueue("onna/beats/ds1", 5)
-
-	//for i := 0; i < 1; i++ {
-	//	msg := redrabbit.NewMsg(
-	//		[]byte("hello"),
-	//		nil, redrabbit.GenerateUUID(),
-	//		queue,
-	//	)
-	//	queue.Add(msg)
-	//}
-
-	//msg2, _ := queue.Get()
-	//log.Println(msg2)
-
-	//time.Sleep(time.Second * 10)
-	//msg2, _ = queue.Get()
-
 	router := mux.NewRouter()
 
+	// The order of the definition of the routes is important
+	router.HandleFunc("/q/{path:.+?}/@get", getMessage).Methods("GET")
+	router.HandleFunc("/q/{path:.+?}/@put", putMessage).Methods("POST")
+
+	// Get all queues
 	router.HandleFunc("/q", func(w http.ResponseWriter, r *http.Request) {
 		getQueues(app, w)
 	}).Methods("GET")
 
-	router.HandleFunc("/q/{path:.+?}/@get", getMessage).Methods("GET")
+	router.HandleFunc("/q/{path:.+?}", createQueue).Methods("POST")
+	//router.HandleFunc("/q/{path:.+?}", deleteQueue).Methods("DELETE")
+
+	//router.HandleFunc("/q/{path:.+?}/@info", queueInfo).Methods("GET")
+
+	//router.HandleFunc("/q/{path:.+?}/{msg}/@ack", ackMessage).Methods("POST")
+	//router.HandleFunc("/q/{path:.+?}/{msg}/@nack", nackMessage).Methods("POST")
 
 	log.Fatal(http.ListenAndServe(":8000", router))
-
 }

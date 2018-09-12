@@ -8,11 +8,10 @@ import (
 
 type Message struct {
 	Id      string            `json:"id"`
-	Headers map[string]string `json:"headers"`
+	Headers map[string]string `json:"headers,omitempty"`
 	Body    []byte            `json:"body"`
-	queue   *Queue
+	queue   *Queue            `json:"queue"`
 }
-
 
 func (msg Message) Ack() error {
 	conn := msg.queue.pool.Get()
